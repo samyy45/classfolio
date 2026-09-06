@@ -5,7 +5,7 @@ import { useRouter, useParams, usePathname } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { CATEGORY_OPTIONS, BRANCH_OPTIONS } from '@/lib/constants';
 import { getCachedProfile, setCachedProfile, clearCachedProfile, UserProfile } from '@/lib/profileCache';
-import { LayoutGrid, GraduationCap, Users, UserCheck, Upload, User, LogOut, Award, Receipt, CalendarCheck } from 'lucide-react';
+import { LayoutGrid, GraduationCap, Users, UserCheck, Upload, User, LogOut, Award, Receipt, CalendarCheck, X, ChevronRight } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -226,6 +226,24 @@ export default function StudentDetailPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // ── Attendance History modal state ─────────────────────────────────────────
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyStudentId, setHistoryStudentId] = useState<number | null>(null);
+  const [historyStudentName, setHistoryStudentName] = useState('');
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMonthFilter, setHistoryMonthFilter] = useState('all');
+
+  useEffect(() => {
+    if (!isHistoryOpen || !historyStudentId) return;
+    setHistoryLoading(true);
+    fetch(`/api/attendance/student-history?studentId=${historyStudentId}`)
+      .then(r => r.json())
+      .then(d => setHistoryData(d.history || []))
+      .catch(() => setHistoryData([]))
+      .finally(() => setHistoryLoading(false));
+  }, [isHistoryOpen, historyStudentId]);
 
   useEffect(() => {
     fetch('/api/divisions')
@@ -905,6 +923,14 @@ export default function StudentDetailPage() {
                           </div>
                         );
                       })()}
+
+                      {/* View History link */}
+                      <button
+                        onClick={() => { setHistoryStudentId(student.id); setHistoryStudentName(student.full_name); setIsHistoryOpen(true); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, padding: '9px 16px', background: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center' }}
+                      >
+                        <CalendarCheck size={15} /> View Attendance History <ChevronRight size={14} />
+                      </button>
                     </div>
                   );
                 })()}
@@ -1186,6 +1212,74 @@ export default function StudentDetailPage() {
           onCancel={() => setShowWithdrawConfirm(false)}
         />
       )}
+      {/* ── Attendance History Modal ──────────────────────────────────────── */}
+      {isHistoryOpen && (() => {
+        const months = Array.from(new Set(historyData.map(r => r.date.slice(0, 7)))).sort((a, b) => b.localeCompare(a));
+        const filtered = historyMonthFilter === 'all' ? historyData : historyData.filter(r => r.date.startsWith(historyMonthFilter));
+
+        // Group by month
+        const grouped: Record<string, any[]> = {};
+        filtered.forEach(r => {
+          const m = r.date.slice(0, 7);
+          if (!grouped[m]) grouped[m] = [];
+          grouped[m].push(r);
+        });
+
+        const formatMonth = (ym: string) => {
+          const [y, m] = ym.split('-');
+          return new Date(Number(y), Number(m) - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+        };
+        const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div style={{ background: '#FFF', borderRadius: 14, width: '100%', maxWidth: 520, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 20px', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#111827' }}>Attendance History</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: 13, color: '#6B7280' }}>{historyStudentName}</p>
+                </div>
+                <button onClick={() => setIsHistoryOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 4 }}><X size={20} /></button>
+              </div>
+              {/* Filter */}
+              <div style={{ padding: '12px 20px', borderBottom: '1px solid #F3F4F6', flexShrink: 0 }}>
+                <select value={historyMonthFilter} onChange={e => setHistoryMonthFilter(e.target.value)} style={{ padding: '7px 12px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, color: '#374151' }}>
+                  <option value="all">All Months</option>
+                  {months.map(m => <option key={m} value={m}>{formatMonth(m)}</option>)}
+                </select>
+              </div>
+              {/* Body */}
+              <div style={{ overflowY: 'auto', flex: 1, padding: '0 0 16px' }}>
+                {historyLoading ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: '#6B7280', fontSize: 14 }}>Loading history...</div>
+                ) : filtered.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF', fontSize: 14 }}>No attendance records found.</div>
+                ) : (
+                  Object.keys(grouped).sort((a, b) => b.localeCompare(a)).map(month => (
+                    <div key={month}>
+                      <div style={{ padding: '10px 20px 6px', fontSize: 12, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.07em', background: '#F9FAFB', borderBottom: '1px solid #F3F4F6', position: 'sticky', top: 0 }}>
+                        {formatMonth(month)}
+                      </div>
+                      {grouped[month].map(record => (
+                        <div key={record.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 20px', borderBottom: '1px solid #F9FAFB' }}>
+                          <div>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{formatDate(record.date)}</span>
+                            <span style={{ fontSize: 13, color: '#6B7280', marginLeft: 10 }}>{record.periodLabel}</span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 12px', borderRadius: 9999, background: record.status === 'Present' ? '#DCFCE7' : '#FEE2E2', color: record.status === 'Present' ? '#16A34A' : '#DC2626' }}>
+                            {record.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -81,8 +81,8 @@ export default function AttendancePage() {
     const dateNum = d.getDate();
     if (dayOfWeek === 0) return true; // Sunday
     if (dayOfWeek === 6) { // Saturday
-      if (dateNum >= 1 && dateNum <= 7) return true; // 1st Saturday
-      if (dateNum >= 15 && dateNum <= 21) return true; // 3rd Saturday
+      if (dateNum >= 8 && dateNum <= 14) return true; // 2nd Saturday
+      if (dateNum >= 22 && dateNum <= 28) return true; // 4th Saturday
     }
     return false;
   }, [date]);

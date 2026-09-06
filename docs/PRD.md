@@ -84,10 +84,7 @@ Simple model — two attendance fields per student:
 - Semester 2 Attendance (percentage, e.g., 90)
 - Yearly Attendance is auto-calculated: average of Sem 1 and Sem 2
 
-In addition to this static record, there is a **Live Roll Call** system:
-- Attendance is recorded twice a day: **Morning Session** and **Afternoon Session**.
-- **Holiday System**: Sundays and 1st/3rd Saturdays are automatically locked. HOD can manually mark other days as holidays to prevent records.
-- **Export Data**: Administrators can extract a live report of any session via an "Extract Data" modal, providing a visual Pie Chart and an Excel export that organizes students by Present/Absent status.
+No monthly breakdown. No per-lecture tracking. Just two numbers.
 
 ### 4.4 Bulk Excel Upload
 - HOD (and optionally teachers) can upload an Excel file to bulk-add students
