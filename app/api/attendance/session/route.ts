@@ -148,15 +148,18 @@ export async function POST(request: NextRequest) {
   }
 
   // Upsert Session
+  // Note: period_label is kept for backward-compat (NOT NULL in old schema); mirrors period_id
   const { data: sessionData, error: sessionError } = await supabase
     .from('attendance_sessions')
     .upsert({
       division_id: parseInt(divisionId, 10),
       session_date: date,
       period_id: periodId,
+      period_label: periodId,   // backward-compat: old schema has period_label NOT NULL
       marked_by: user.id,
     }, {
-      onConflict: 'division_id, session_date, period_id',
+      onConflict: 'division_id,session_date,period_id',
+      ignoreDuplicates: false,
     })
     .select('id')
     .single();

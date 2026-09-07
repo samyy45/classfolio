@@ -44,7 +44,7 @@ export default function ClassAttendancePage() {
   // Skip state
   const [skipInfo, setSkipInfo] = useState<{ id: string; reason: string | null } | null>(null);
   const [isSkipModalOpen, setIsSkipModalOpen] = useState(false);
-  const [skipForm, setSkipForm] = useState<{ periodId: 'L1'|'L2'|'L3'|'L4'|'L5'|'L6'; startDate: string; endDate: string; reason: string; allPeriods: boolean }>({ periodId: periodId as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6', startDate: date, endDate: date, reason: '', allPeriods: false });
+  const [skipForm, setSkipForm] = useState<{ periodId: 'L1'|'L2'|'L3'|'L4'|'L5'|'L6'; startPeriodId: 'L1'|'L2'|'L3'|'L4'|'L5'|'L6'; endPeriodId: 'L1'|'L2'|'L3'|'L4'|'L5'|'L6'; reason: string; allPeriods: boolean }>({ periodId: periodId as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6', startPeriodId: periodId as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6', endPeriodId: 'L6', reason: '', allPeriods: false });
   const [submittingSkip, setSubmittingSkip] = useState(false);
   const [undoingSkip, setUndoingSkip] = useState(false);
 
@@ -167,17 +167,29 @@ export default function ClassAttendancePage() {
   const handleCreateSkip = async () => {
     setSubmittingSkip(true);
     try {
-      const res = await fetch('/api/attendance/skip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          divisionId,
-          periodId: skipForm.allPeriods ? null : skipForm.periodId,
-          startDate: skipForm.startDate,
-          endDate: skipForm.endDate,
-          reason: skipForm.reason || null,
-        })
-      });
+      // For lecture-range skip: use current date, cover from startPeriod to endPeriod
+      // We create one skip per period in the range on the selected date
+      const allSlotIds: ('L1'|'L2'|'L3'|'L4'|'L5'|'L6')[] = ['L1','L2','L3','L4','L5','L6'];
+      const startIdx = allSlotIds.indexOf(skipForm.startPeriodId);
+      const endIdx = allSlotIds.indexOf(skipForm.endPeriodId);
+      const periodsToSkip = skipForm.allPeriods ? [null] : allSlotIds.slice(startIdx, endIdx + 1);
+
+      let lastRes: Response | null = null;
+      for (const pid of periodsToSkip) {
+        lastRes = await fetch('/api/attendance/skip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            divisionId,
+            periodId: pid,
+            startDate: date,
+            endDate: date,
+            reason: skipForm.reason || null,
+          })
+        });
+        if (!lastRes.ok) break;
+      }
+      const res = lastRes!;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setIsSkipModalOpen(false);
@@ -311,7 +323,7 @@ export default function ClassAttendancePage() {
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#111827', margin: 0 }}>Class Attendance</h1>
           {divisionId && !isHoliday && !isFuture && (
             <button
-              onClick={() => { setSkipForm({ periodId, startDate: date, endDate: date, reason: '', allPeriods: false }); setIsSkipModalOpen(true); }}
+              onClick={() => { setSkipForm({ periodId: periodId as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6', startPeriodId: periodId as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6', endPeriodId: 'L6', reason: '', allPeriods: false }); setIsSkipModalOpen(true); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#FFF', color: '#6B7280', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
             >
               <SkipForward size={15} /> Skip Session
@@ -468,30 +480,40 @@ export default function ClassAttendancePage() {
               <button onClick={() => setIsSkipModalOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6B7280' }}><X size={20} /></button>
             </div>
             <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
-                <input type="checkbox" checked={skipForm.allPeriods} onChange={e => setSkipForm(f => ({ ...f, allPeriods: e.target.checked }))} style={{ marginRight: 8 }} />
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#111827', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={skipForm.allPeriods} onChange={e => setSkipForm(f => ({ ...f, allPeriods: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#4F46E5' }} />
                 Skip all periods (not just this lecture)
               </label>
-              {!skipForm.allPeriods && (
+              {/* Date being skipped (informational) */}
+              <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#3730A3', fontWeight: 500 }}>
+                📅 Skipping on: <strong>{date}</strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Period</label>
-                  <select value={skipForm.periodId} onChange={e => setSkipForm(f => ({ ...f, periodId: e.target.value as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6' }))} style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#111827', display: 'block', marginBottom: 6 }}>From Lecture</label>
+                  <select
+                    value={skipForm.startPeriodId}
+                    onChange={e => setSkipForm(f => ({ ...f, startPeriodId: e.target.value as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6' }))}
+                    style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 13, color: '#111827', background: '#FFF' }}
+                    disabled={skipForm.allPeriods}
+                  >
                     {LECTURE_SLOTS.map(s => <option key={s.id} value={s.id}>{s.label} — {s.time}</option>)}
                   </select>
                 </div>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>From Date</label>
-                  <input type="date" value={skipForm.startDate} onChange={e => setSkipForm(f => ({ ...f, startDate: e.target.value }))} style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>To Date</label>
-                  <input type="date" value={skipForm.endDate} min={skipForm.startDate} onChange={e => setSkipForm(f => ({ ...f, endDate: e.target.value }))} style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14 }} />
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#111827', display: 'block', marginBottom: 6 }}>To Lecture</label>
+                  <select
+                    value={skipForm.endPeriodId}
+                    onChange={e => setSkipForm(f => ({ ...f, endPeriodId: e.target.value as 'L1'|'L2'|'L3'|'L4'|'L5'|'L6' }))}
+                    style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 13, color: '#111827', background: '#FFF' }}
+                    disabled={skipForm.allPeriods}
+                  >
+                    {LECTURE_SLOTS.map(s => <option key={s.id} value={s.id}>{s.label} — {s.time}</option>)}
+                  </select>
                 </div>
               </div>
               <div>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Reason (optional)</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#111827', display: 'block', marginBottom: 6 }}>Reason (optional)</label>
                 <input type="text" value={skipForm.reason} onChange={e => setSkipForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Workshop, Exam block, Faculty leave" style={{ width: '100%', padding: '9px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }} />
               </div>
               <button onClick={handleCreateSkip} disabled={submittingSkip} style={{ padding: '11px 24px', background: '#4F46E5', color: '#FFF', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: submittingSkip ? 'not-allowed' : 'pointer', opacity: submittingSkip ? 0.7 : 1 }}>

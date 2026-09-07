@@ -16,8 +16,8 @@ export const metadata: Metadata = {
   title: 'ClassFolio',
   description: 'Student Information Management for College Faculty',
   icons: {
-    icon: '/classfolio-icon.jpg',
-    apple: '/classfolio-icon.jpg',
+    icon: '/classfolio-logo.png',
+    apple: '/classfolio-logo.png',
   },
 };
 

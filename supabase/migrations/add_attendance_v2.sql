@@ -7,12 +7,27 @@
 ALTER TABLE attendance_sessions
   ADD COLUMN IF NOT EXISTS period_id TEXT;
 
--- Copy existing data from period_label to period_id if needed
+-- Normalize legacy values if possible, or set a valid default / clean up invalid test data
 UPDATE attendance_sessions
-  SET period_id = period_label
-  WHERE period_id IS NULL AND period_label IS NOT NULL;
+  SET period_id = CASE
+    WHEN period_id ILIKE '%morning%' OR period_id ILIKE '%1%' THEN 'L1'
+    WHEN period_id ILIKE '%afternoon%' OR period_id ILIKE '%2%' THEN 'L2'
+    WHEN period_id IN ('L1','L2','L3','L4','L5','L6') THEN period_id
+    ELSE 'L1'
+  END
+  WHERE period_id IS NOT NULL;
 
--- Add check constraint (will error silently if data doesn't match — clean DB first if needed)
+-- If there are still rows with invalid period_id, remove their child attendance records and session rows
+DELETE FROM attendance_records
+  WHERE session_id IN (
+    SELECT id FROM attendance_sessions
+    WHERE period_id NOT IN ('L1','L2','L3','L4','L5','L6') OR period_id IS NULL
+  );
+
+DELETE FROM attendance_sessions
+  WHERE period_id NOT IN ('L1','L2','L3','L4','L5','L6') OR period_id IS NULL;
+
+-- Add check constraint
 ALTER TABLE attendance_sessions
   DROP CONSTRAINT IF EXISTS chk_period_id;
 

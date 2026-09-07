@@ -235,15 +235,16 @@ export default function StudentDetailPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMonthFilter, setHistoryMonthFilter] = useState('all');
 
+  // Pre-fetch attendance history as soon as we know the student — so calendar opens instantly
   useEffect(() => {
-    if (!isHistoryOpen || !historyStudentId) return;
+    if (!studentId) return;
     setHistoryLoading(true);
-    fetch(`/api/attendance/student-history?studentId=${historyStudentId}`)
+    fetch(`/api/attendance/student-history?studentId=${studentId}`)
       .then(r => r.json())
       .then(d => setHistoryData(d.history || []))
       .catch(() => setHistoryData([]))
       .finally(() => setHistoryLoading(false));
-  }, [isHistoryOpen, historyStudentId]);
+  }, [studentId]);
 
   useEffect(() => {
     fetch('/api/divisions')
@@ -851,9 +852,27 @@ export default function StudentDetailPage() {
                       {/* Daily Attendance Summary */}
                       {(() => {
                         const records = student.attendance_records || [];
-                        const total = records.length;
-                        const present = records.filter(r => r.status === 'Present').length;
-                        const absent = total - present;
+                        
+                        // Group records by unique date (YYYY-MM-DD)
+                        const daysMap: Record<string, { present: number; absent: number }> = {};
+                        records.forEach(r => {
+                          if (!r.date) return;
+                          const d = String(r.date).slice(0, 10);
+                          if (!daysMap[d]) daysMap[d] = { present: 0, absent: 0 };
+                          if (r.status === 'Present') daysMap[d].present++;
+                          else daysMap[d].absent++;
+                        });
+
+                        const total = Object.keys(daysMap).length;
+                        let present = 0;
+                        let absent = 0;
+                        
+                        Object.values(daysMap).forEach(day => {
+                          // If present for at least one period, mark the whole day as Present
+                          if (day.present > 0) present++;
+                          else absent++;
+                        });
+                        
                         const pct = total > 0 ? (present / total) * 100 : 0;
                         
                         const data = [
@@ -890,7 +909,7 @@ export default function StudentDetailPage() {
                                 </div>
                               </div>
                             </div>
-                            <div className="att-summary-chart" style={{ width: 140, height: 140, position: 'relative', flexShrink: 0 }}>
+                            <div className="att-summary-chart" style={{ width: 140, height: 140, position: 'relative', flexShrink: 0, cursor: 'pointer' }} onClick={() => { setHistoryStudentId(student.id); setHistoryStudentName(student.full_name); setHistoryMonthFilter('all'); setIsHistoryOpen(true); }} title="Click to view attendance calendar">
                               <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                   <Pie
@@ -1212,68 +1231,159 @@ export default function StudentDetailPage() {
           onCancel={() => setShowWithdrawConfirm(false)}
         />
       )}
-      {/* ── Attendance History Modal ──────────────────────────────────────── */}
+      {/* ── Attendance Calendar Modal ──────────────────────────────────────── */}
       {isHistoryOpen && (() => {
-        const months = Array.from(new Set(historyData.map(r => r.date.slice(0, 7)))).sort((a, b) => b.localeCompare(a));
-        const filtered = historyMonthFilter === 'all' ? historyData : historyData.filter(r => r.date.startsWith(historyMonthFilter));
-
-        // Group by month
-        const grouped: Record<string, any[]> = {};
-        filtered.forEach(r => {
-          const m = r.date.slice(0, 7);
-          if (!grouped[m]) grouped[m] = [];
-          grouped[m].push(r);
+        type DayInfo = { present: number; absent: number; periods: { label: string; status: string }[] };
+        const dayMap: Record<string, DayInfo> = {};
+        historyData.forEach((r: any) => {
+          const dateStr = String(r.date).slice(0, 10);
+          if (!dayMap[dateStr]) dayMap[dateStr] = { present: 0, absent: 0, periods: [] };
+          if (r.status === 'Present') dayMap[dateStr].present++;
+          else dayMap[dateStr].absent++;
+          dayMap[dateStr].periods.push({ label: r.periodLabel || r.period_id || '', status: r.status });
         });
 
-        const formatMonth = (ym: string) => {
-          const [y, m] = ym.split('-');
-          return new Date(Number(y), Number(m) - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+        const allDates = Object.keys(dayMap).sort();
+        const availableMonths = Array.from(new Set(allDates.map(d => d.slice(0, 7)))).sort();
+        const defaultMonth = availableMonths[availableMonths.length - 1] || new Date().toISOString().slice(0, 7);
+        const shownMonth = (historyMonthFilter === 'all' || !historyMonthFilter) ? defaultMonth : historyMonthFilter;
+        const [shownYear, shownMonthNum] = shownMonth.split('-').map(Number);
+
+        const prevMonth = () => {
+          const d = new Date(shownYear, shownMonthNum - 2, 1);
+          setHistoryMonthFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
         };
-        const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        const nextMonth = () => {
+          const d = new Date(shownYear, shownMonthNum, 1);
+          setHistoryMonthFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        };
+
+        const monthLabel = new Date(shownYear, shownMonthNum - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+        const firstDay = new Date(shownYear, shownMonthNum - 1, 1).getDay();
+        const daysInMonth = new Date(shownYear, shownMonthNum, 0).getDate();
+
+        const monthDays = Object.entries(dayMap).filter(([d]) => d.startsWith(shownMonth));
+        const monthPresent = monthDays.reduce((s, [, v]) => s + v.present, 0);
+        const monthAbsent = monthDays.reduce((s, [, v]) => s + v.absent, 0);
+        const monthTotal = monthPresent + monthAbsent;
+        const monthPct = monthTotal > 0 ? Math.round((monthPresent / monthTotal) * 100) : null;
+
+        const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div style={{ background: '#FFF', borderRadius: 14, width: '100%', maxWidth: 520, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-              {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 20px', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+            onClick={() => { setIsHistoryOpen(false); setHistoryMonthFilter('all'); }}
+          >
+            <div
+              style={{ background: '#FFFFFF', borderRadius: 16, width: '100%', maxWidth: 500, boxShadow: '0 20px 40px -8px rgba(0,0,0,0.18)', overflow: 'hidden', fontFamily: 'inherit' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* ── Header ── */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: '1px solid #E5E7EB' }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#111827' }}>Attendance History</h3>
-                  <p style={{ margin: '2px 0 0', fontSize: 13, color: '#6B7280' }}>{historyStudentName}</p>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4F46E5', marginBottom: 2 }}>Attendance Calendar</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: '#111827' }}>{historyStudentName}</div>
                 </div>
-                <button onClick={() => setIsHistoryOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 4 }}><X size={20} /></button>
+                <button
+                  onClick={() => { setIsHistoryOpen(false); setHistoryMonthFilter('all'); }}
+                  style={{ background: '#F3F4F6', border: 'none', cursor: 'pointer', color: '#374151', borderRadius: 8, padding: '7px 9px', display: 'flex', alignItems: 'center' }}
+                >
+                  <X size={17} />
+                </button>
               </div>
-              {/* Filter */}
-              <div style={{ padding: '12px 20px', borderBottom: '1px solid #F3F4F6', flexShrink: 0 }}>
-                <select value={historyMonthFilter} onChange={e => setHistoryMonthFilter(e.target.value)} style={{ padding: '7px 12px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, color: '#374151' }}>
-                  <option value="all">All Months</option>
-                  {months.map(m => <option key={m} value={m}>{formatMonth(m)}</option>)}
-                </select>
+
+              {/* ── Month navigator + summary ── */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px 0' }}>
+                <button onClick={prevMonth} style={{ background: '#F3F4F6', border: 'none', cursor: 'pointer', color: '#111827', borderRadius: 8, padding: '6px 13px', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>‹</button>
+                <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: '#111827' }}>{monthLabel}</div>
+                <button onClick={nextMonth} style={{ background: '#F3F4F6', border: 'none', cursor: 'pointer', color: '#111827', borderRadius: 8, padding: '6px 13px', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>›</button>
               </div>
-              {/* Body */}
-              <div style={{ overflowY: 'auto', flex: 1, padding: '0 0 16px' }}>
+
+              {/* ── Calendar grid ── */}
+              <div style={{ padding: '16px 20px 20px' }}>
                 {historyLoading ? (
-                  <div style={{ padding: 40, textAlign: 'center', color: '#6B7280', fontSize: 14 }}>Loading history...</div>
-                ) : filtered.length === 0 ? (
-                  <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF', fontSize: 14 }}>No attendance records found.</div>
+                  <div style={{ padding: 40, textAlign: 'center', color: '#6B7280', fontSize: 14 }}>Loading...</div>
                 ) : (
-                  Object.keys(grouped).sort((a, b) => b.localeCompare(a)).map(month => (
-                    <div key={month}>
-                      <div style={{ padding: '10px 20px 6px', fontSize: 12, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.07em', background: '#F9FAFB', borderBottom: '1px solid #F3F4F6', position: 'sticky', top: 0 }}>
-                        {formatMonth(month)}
-                      </div>
-                      {grouped[month].map(record => (
-                        <div key={record.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 20px', borderBottom: '1px solid #F9FAFB' }}>
-                          <div>
-                            <span style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{formatDate(record.date)}</span>
-                            <span style={{ fontSize: 13, color: '#6B7280', marginLeft: 10 }}>{record.periodLabel}</span>
-                          </div>
-                          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 12px', borderRadius: 9999, background: record.status === 'Present' ? '#DCFCE7' : '#FEE2E2', color: record.status === 'Present' ? '#16A34A' : '#DC2626' }}>
-                            {record.status}
-                          </span>
-                        </div>
+                  <>
+                    {/* Day-of-week headers */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
+                      {dayNames.map(d => (
+                        <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#9CA3AF', padding: '4px 0', textTransform: 'uppercase' }}>{d}</div>
                       ))}
                     </div>
-                  ))
+                    {/* Day cells */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                      {Array.from({ length: firstDay }).map((_, i) => <div key={`blank-${i}`} />)}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const dateStr = `${shownYear}-${String(shownMonthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const info = dayMap[dateStr];
+                        const isPresent = info && info.present > 0 && info.absent === 0;
+                        const isAbsent = info && info.absent > 0 && info.present === 0;
+                        const isMixed = info && info.present > 0 && info.absent > 0;
+                        const isToday = dateStr === new Date().toISOString().slice(0, 10);
+
+                        let bg = '#F9FAFB';
+                        let textColor = '#374151';
+                        let border = '1px solid #E5E7EB';
+                        if (isPresent) { bg = '#DCFCE7'; textColor = '#15803D'; border = '1px solid #86EFAC'; }
+                        if (isAbsent) { bg = '#FEE2E2'; textColor = '#B91C1C'; border = '1px solid #FCA5A5'; }
+                        if (isMixed) { bg = '#FEF3C7'; textColor = '#92400E'; border = '1px solid #FCD34D'; }
+                        if (isToday && !info) { border = '2px solid #4F46E5'; textColor = '#4F46E5'; }
+                        if (isToday && info) { border = '2px solid #4F46E5'; }
+
+                        return (
+                          <div
+                            key={day}
+                            title={info ? info.periods.map(p => `${p.label}: ${p.status}`).join('\n') : ''}
+                            style={{
+                              background: bg,
+                              color: textColor,
+                              border,
+                              borderRadius: 8,
+                              padding: '7px 2px 6px',
+                              textAlign: 'center',
+                              cursor: info ? 'default' : 'default',
+                              minHeight: 46,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'flex-start',
+                              gap: 3,
+                            }}
+                          >
+                            <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{day}</span>
+                            {info && (
+                              <span style={{ fontSize: 9, fontWeight: 800, lineHeight: 1 }}>
+                                {isPresent ? 'P' : isAbsent ? 'A' : `${info.present}P/${info.absent}A`}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Legend */}
+                    <div style={{ display: 'flex', gap: 12, marginTop: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151' }}>
+                        <div style={{ width: 13, height: 13, borderRadius: 3, background: '#DCFCE7', border: '1px solid #86EFAC' }} />
+                        Present
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151' }}>
+                        <div style={{ width: 13, height: 13, borderRadius: 3, background: '#FEE2E2', border: '1px solid #FCA5A5' }} />
+                        Absent
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151' }}>
+                        <div style={{ width: 13, height: 13, borderRadius: 3, background: '#FEF3C7', border: '1px solid #FCD34D' }} />
+                        Partial
+                      </div>
+                    </div>
+
+                    {monthTotal === 0 && !historyLoading && (
+                      <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, marginTop: 16 }}>No attendance records for this month.</div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
