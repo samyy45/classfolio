@@ -159,3 +159,4 @@ if (!profile || profile.role !== 'hod') {
 Be careful
 
 **Why:** Accidental withdrawal of the wrong student is a realistic scenario. This one extra step prevents a consequential mistake.
+be careful
