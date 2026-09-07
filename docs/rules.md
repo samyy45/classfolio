@@ -156,5 +156,6 @@ if (!profile || profile.role !== 'hod') {
 ## RULE 14 — Confirmation Dialog Before Marking a Student as Withdrawn
 
 **The rule:** Clicking "Mark as Withdrawn" must show a modal dialog asking "Are you sure? This student will be hidden from the active list." with Cancel and Confirm buttons. The action only proceeds after Confirm.
+Be careful
 
 **Why:** Accidental withdrawal of the wrong student is a realistic scenario. This one extra step prevents a consequential mistake.
