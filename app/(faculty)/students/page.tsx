@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { getCachedProfile, setCachedProfile, clearCachedProfile, UserProfile } from '@/lib/profileCache';
@@ -232,7 +232,7 @@ function Sidebar({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function StudentsPage() {
+function StudentsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -789,5 +789,13 @@ export default function StudentsPage() {
         }} 
       />
     </div>
+  );
+}
+
+export default function StudentsPage() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#6B7280' }}>Loading students...</div>}>
+      <StudentsPageContent />
+    </Suspense>
   );
 }
