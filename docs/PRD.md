@@ -1,4 +1,4 @@
-# PRD — Product Requirements Document____
+# PRD — Product Requirements Document__
 # College Student Information Management System
 # Version: 1.0 | Status: Final for Development
 
